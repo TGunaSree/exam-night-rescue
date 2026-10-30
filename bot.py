@@ -6,8 +6,10 @@ Main entry point — registers all handlers, provides HTTP health check for Free
 and runs the Telegram bot.
 """
 import os
+import sys
 import logging
 import threading
+import traceback
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
 
@@ -36,7 +38,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ── Health check HTTP server for Render / Koyeb Free Web Service ──────────────
+# ── Health check HTTP server for Render Free Web Service ─────────────────────
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -44,14 +46,27 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b"Exam Night Rescue Bot is alive and running!")
 
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+
     def log_message(self, format, *args):
         pass  # Suppress HTTP server noise
 
+
+class ReusableHTTPServer(HTTPServer):
+    allow_reuse_address = True
+
+
 def run_health_server():
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
-    logger.info(f"Health check server running on port {port}")
-    server.serve_forever()
+    try:
+        port = int(os.environ.get("PORT", 8080))
+        server = ReusableHTTPServer(("0.0.0.0", port), HealthCheckHandler)
+        logger.info(f"🌐 Health check web server running on port {port}")
+        server.serve_forever()
+    except Exception as e:
+        logger.error(f"Failed to start health server: {e}")
 
 # ── Bot Strings & Prompts ────────────────────────────────────────────────────
 WELCOME = """🆘 Exam Night Rescue — Your Last-Minute Study Companion!
@@ -285,39 +300,50 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    if not token:
-        raise ValueError("TELEGRAM_BOT_TOKEN not set in .env")
+    raw_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip().strip('"').strip("'")
+    if not raw_token:
+        logger.error("❌ CRITICAL: TELEGRAM_BOT_TOKEN is not set in Environment Variables!")
+        sys.exit(1)
 
-    # Start health check server on a background thread for Free Web Service hosting
+    gemini_key = os.getenv("GEMINI_API_KEY", "").strip().strip('"').strip("'")
+    if not gemini_key:
+        logger.warning("⚠️ WARNING: GEMINI_API_KEY is not set in Environment Variables!")
+
+    logger.info("🔧 Starting health check server...")
     health_thread = threading.Thread(target=run_health_server, daemon=True)
     health_thread.start()
 
-    app = Application.builder().token(token).build()
+    logger.info("🤖 Initializing Telegram bot...")
+    try:
+        app = Application.builder().token(raw_token).build()
 
-    # Commands
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("plan", generate_plan))
-    app.add_handler(CommandHandler("questions", handle_questions))
-    app.add_handler(CommandHandler("quiz", start_quiz))
-    app.add_handler(CommandHandler("endquiz", end_quiz))
-    app.add_handler(CommandHandler("summary", handle_summary))
-    app.add_handler(CommandHandler("panic", handle_panic))
-    app.add_handler(CommandHandler("done", done_command))
-    app.add_handler(CommandHandler("progress", progress_command))
-    app.add_handler(CommandHandler("pyq", pyq_command))
-    app.add_handler(CommandHandler("reset", reset_command))
-    app.add_handler(CommandHandler("settopics", settopics_command))
+        # Commands
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("help", help_command))
+        app.add_handler(CommandHandler("plan", generate_plan))
+        app.add_handler(CommandHandler("questions", handle_questions))
+        app.add_handler(CommandHandler("quiz", start_quiz))
+        app.add_handler(CommandHandler("endquiz", end_quiz))
+        app.add_handler(CommandHandler("summary", handle_summary))
+        app.add_handler(CommandHandler("panic", handle_panic))
+        app.add_handler(CommandHandler("done", done_command))
+        app.add_handler(CommandHandler("progress", progress_command))
+        app.add_handler(CommandHandler("pyq", pyq_command))
+        app.add_handler(CommandHandler("reset", reset_command))
+        app.add_handler(CommandHandler("settopics", settopics_command))
 
-    # Photos and Documents (e.g. WebP, PNG, JPG, PDF)
-    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, handle_photo_or_doc))
+        # Photos and Documents (e.g. WebP, PNG, JPG, PDF)
+        app.add_handler(MessageHandler(filters.PHOTO | filters.Document.ALL, handle_photo_or_doc))
 
-    # Text router
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+        # Text router
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    logger.info("🆘 Exam Night Rescue Bot is running!")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+        logger.info("🆘 Exam Night Rescue Bot is polling Telegram!")
+        app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
+    except Exception as e:
+        logger.critical(f"FATAL error in bot: {e}")
+        traceback.print_exc()
+        sys.exit(1)
 
 
 if __name__ == "__main__":
