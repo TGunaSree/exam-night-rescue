@@ -2,10 +2,13 @@
 Exam Night Rescue — Telegram Bot
 BharatCode Hackathon 2026
 
-Main entry point — registers all handlers and starts polling.
+Main entry point — registers all handlers, provides HTTP health check for Free Cloud Hosting (Render/Koyeb),
+and runs the Telegram bot.
 """
 import os
 import logging
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
 
 from telegram import Update
@@ -33,6 +36,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ── Health check HTTP server for Render / Koyeb Free Web Service ──────────────
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Exam Night Rescue Bot is alive and running!")
+
+    def log_message(self, format, *args):
+        pass  # Suppress HTTP server noise
+
+def run_health_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    logger.info(f"Health check server running on port {port}")
+    server.serve_forever()
+
+# ── Bot Strings & Prompts ────────────────────────────────────────────────────
 WELCOME = """🆘 Exam Night Rescue — Your Last-Minute Study Companion!
 
 Exam tomorrow? Don't panic. I've got you. 💪
@@ -94,7 +115,6 @@ async def settopics_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
         return
 
-    # Split by comma or newline
     topics = [t.strip() for t in raw.replace("\n", ",").split(",") if t.strip()]
     if not topics:
         await update.message.reply_text("Could not find topics. Separate them with commas.")
@@ -226,7 +246,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         except ValueError:
             await update.message.reply_text("Please enter a valid number of hours, e.g. 4 or 6.5")
             return
-        # Generate the rescue plan
         await generate_plan(update, context)
         return
 
@@ -269,6 +288,10 @@ def main() -> None:
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
         raise ValueError("TELEGRAM_BOT_TOKEN not set in .env")
+
+    # Start health check server on a background thread for Free Web Service hosting
+    health_thread = threading.Thread(target=run_health_server, daemon=True)
+    health_thread.start()
 
     app = Application.builder().token(token).build()
 
