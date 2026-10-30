@@ -12,14 +12,14 @@ from utils import bharatcode, session
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are an expert at reading academic syllabus documents, handwritten notes, 
-and study materials. Extract all topics/chapters/units mentioned in the image.
-Return ONLY a clean numbered list of topics, nothing else.
+SYSTEM_PROMPT = """You are an expert at reading academic syllabus documents, course outlines, handwritten notes, 
+and study materials. Extract all topics, chapters, units, or modules mentioned in the image.
+Return ONLY a numbered list of topics.
 Example:
 1. Arrays and Strings
 2. Linked Lists
 3. Trees and Graphs
-Keep topic names short (3-7 words max). Extract every distinct topic you can see."""
+Keep topic names clear and concise (3-7 words max). Extract every distinct topic you see."""
 
 
 async def handle_photo_or_doc(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -28,7 +28,7 @@ async def handle_photo_or_doc(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     chat_id = update.effective_chat.id
 
-    status_msg = await msg.reply_text("📸 Got your syllabus file! Analyzing topics... please wait ⏳")
+    status_msg = await msg.reply_text("📸 Syllabus image received! Reading topics with AI vision... ⏳")
 
     image_bytes = None
 
@@ -37,31 +37,32 @@ async def handle_photo_or_doc(update: Update, context: ContextTypes.DEFAULT_TYPE
             photo = msg.photo[-1]
             file = await context.bot.get_file(photo.file_id)
             raw_bytes = await file.download_as_bytearray()
-            # Convert to standard JPEG via Pillow
+            # Convert and optimize with Pillow
             img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+            img.thumbnail((1280, 1280))
             buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=85)
+            img.save(buf, format="JPEG", quality=80, optimize=True)
             image_bytes = buf.getvalue()
 
         elif msg.document:
             doc = msg.document
             file = await context.bot.get_file(doc.file_id)
             raw_bytes = await file.download_as_bytearray()
-            # Check if it's an image or convert via Pillow
             try:
                 img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+                img.thumbnail((1280, 1280))
                 buf = io.BytesIO()
-                img.save(buf, format="JPEG", quality=85)
+                img.save(buf, format="JPEG", quality=80, optimize=True)
                 image_bytes = buf.getvalue()
             except Exception as e:
                 logger.error(f"Cannot parse document as image: {e}")
                 await status_msg.edit_text(
-                    "❌ That document couldn't be opened as an image. Please send a photo, WebP, PNG, or JPG."
+                    "❌ That document couldn't be opened as an image. Please send a photo or WebP, PNG, or JPG file."
                 )
                 return
     except Exception as e:
         logger.error(f"Error downloading file: {e}")
-        await status_msg.edit_text(f"❌ Failed to download file: {e}")
+        await status_msg.edit_text(f"❌ Failed to download file from Telegram: {e}")
         return
 
     if not image_bytes:
@@ -71,12 +72,12 @@ async def handle_photo_or_doc(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         result = await bharatcode.vision_chat(
             system=SYSTEM_PROMPT,
-            user_text="Extract all topics, chapters, or syllabus points from this image.",
+            user_text="Extract all topics, units, or chapters from this syllabus image.",
             image_bytes=image_bytes,
         )
     except Exception as e:
         logger.error(f"Vision API error: {e}")
-        await status_msg.edit_text(f"❌ Could not analyze the image. Please try again.\nError: {e}")
+        await status_msg.edit_text(f"❌ Could not analyze the image ({e}). Please try again or paste the topics as text!")
         return
 
     # Parse topics from output
@@ -86,13 +87,13 @@ async def handle_photo_or_doc(update: Update, context: ContextTypes.DEFAULT_TYPE
         if not line:
             continue
         cleaned = line.lstrip("0123456789.-)•* ").strip()
-        if cleaned:
+        if cleaned and len(cleaned) > 2:
             topics.append(cleaned)
 
     if not topics:
         await status_msg.edit_text(
-            "😕 I couldn't identify distinct topics in that image.\n"
-            "Try sending a clearer photo or just paste your topics as text in the chat!"
+            "😕 Couldn't recognize clear syllabus topics in that photo.\n"
+            "Try sending a clearer close-up photo, or simply paste your topics as text in this chat!"
         )
         return
 
@@ -103,7 +104,7 @@ async def handle_photo_or_doc(update: Update, context: ContextTypes.DEFAULT_TYPE
     reply_text = (
         f"✅ Found {len(topics)} topics:\n\n"
         f"{topic_lines}\n\n"
-        f"📚 What subject is this? (e.g. Astrobiology, Data Structures, Physics)"
+        f"📚 What subject is this? (e.g. Astrobiology, Data Structures, Economics)"
     )
 
     try:
