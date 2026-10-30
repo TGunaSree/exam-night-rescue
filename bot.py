@@ -2,11 +2,12 @@
 Exam Night Rescue — Telegram Bot
 BharatCode Hackathon 2026
 
-Main entry point — registers all handlers, provides HTTP health check for Free Cloud Hosting (Render/Koyeb),
-and runs the Telegram bot.
+Main entry point with asyncio loop initialization for Python 3.11+
+and HTTP health check for Free Cloud Hosting (Render/Koyeb).
 """
 import os
 import sys
+import asyncio
 import logging
 import threading
 import traceback
@@ -300,6 +301,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    # Explicitly set an asyncio event loop for Python 3.11+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     raw_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip().strip('"').strip("'")
     if not raw_token:
         logger.error("❌ CRITICAL: TELEGRAM_BOT_TOKEN is not set in Environment Variables!")
@@ -313,7 +318,7 @@ def main() -> None:
     health_thread = threading.Thread(target=run_health_server, daemon=True)
     health_thread.start()
 
-    logger.info("🤖 Initializing Telegram bot...")
+    logger.info("🤖 Initializing Telegram bot with asyncio event loop...")
     try:
         app = Application.builder().token(raw_token).build()
 
