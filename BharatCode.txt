@@ -1,0 +1,6 @@
+Exam Night Rescue — BharatCode Hackathon Entry
+
+A Telegram bot that helps college students survive the night before their exam.
+Send a photo of your syllabus → get a revision plan, key questions, quizzes and cheat sheets in seconds.
+
+Powered by BharatCode API (qwen-3.8-27b vision model)
