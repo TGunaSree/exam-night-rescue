@@ -6,10 +6,10 @@ from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import ContextTypes
 from utils import bharatcode, session
 
-SYSTEM_PROMPT = """You are a quiz master for university-level exams.
+SYSTEM_PROMPT = """You are a quiz master for university exams.
 Generate exactly 5 multiple choice questions on the given topic.
 
-Format each question EXACTLY like this (no deviation):
+Format each question EXACTLY like this (use --- between questions):
 Q1. [Question text]
 A) [Option A]
 B) [Option B]
@@ -23,8 +23,7 @@ EXPLANATION: [One sentence explanation]
 Q2. [Question text]
 ...
 
-Make questions test real understanding, not just memorization.
-Vary difficulty: 2 easy, 2 medium, 1 hard."""
+Keep questions practical and test understanding."""
 
 
 def parse_questions(raw: str) -> list:
@@ -36,19 +35,15 @@ def parse_questions(raw: str) -> list:
         if not block:
             continue
         q = {}
-        # Question text
         qm = re.search(r"Q\d+\.\s*(.+?)(?:\n|$)", block)
         if not qm:
             continue
         q["question"] = qm.group(1).strip()
-        # Options
         for opt in ["A", "B", "C", "D"]:
             om = re.search(rf"{opt}\)\s*(.+?)(?:\n|$)", block)
             q[opt] = om.group(1).strip() if om else ""
-        # Answer
         am = re.search(r"ANSWER:\s*([ABCD])", block)
         q["answer"] = am.group(1).strip() if am else "A"
-        # Explanation
         em = re.search(r"EXPLANATION:\s*(.+?)(?:\n|$)", block)
         q["explanation"] = em.group(1).strip() if em else ""
         questions.append(q)
@@ -58,12 +53,12 @@ def parse_questions(raw: str) -> list:
 def format_question(q: dict, index: int, total: int) -> str:
     return (
         f"🎯 Question {index}/{total}\n\n"
-        f"*{q['question']}*\n\n"
-        f"A\\) {q['A']}\n"
-        f"B\\) {q['B']}\n"
-        f"C\\) {q['C']}\n"
-        f"D\\) {q['D']}\n\n"
-        f"Reply with A, B, C or D"
+        f"{q['question']}\n\n"
+        f"A) {q['A']}\n"
+        f"B) {q['B']}\n"
+        f"C) {q['C']}\n"
+        f"D) {q['D']}\n\n"
+        f"👉 Tap an option below:"
     )
 
 
@@ -84,22 +79,20 @@ async def start_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         )
         return
 
-    await update.message.reply_text(
-        f"🎮 Generating quiz on *{topic}*... Get ready!", parse_mode="Markdown"
-    )
+    status_msg = await update.message.reply_text(f"🎮 Generating 5-question quiz on {topic}... Get ready!")
 
     user_prompt = f"Subject: {subject or 'General'}\nTopic: {topic}\nGenerate 5 MCQ questions."
 
     try:
         raw = await bharatcode.chat(SYSTEM_PROMPT, user_prompt, temperature=0.5)
     except Exception as e:
-        await update.message.reply_text(f"❌ Error generating quiz: {e}")
+        await status_msg.edit_text(f"❌ Error generating quiz: {e}")
         return
 
     questions = parse_questions(raw)
     if not questions:
-        await update.message.reply_text(
-            "😕 Couldn't parse quiz questions. Please try again."
+        await status_msg.edit_text(
+            "😕 Couldn't parse quiz questions. Please try /quiz again."
         )
         return
 
@@ -119,9 +112,9 @@ async def start_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     )
 
     q = questions[0]
+    await status_msg.delete()
     await update.message.reply_text(
         format_question(q, 1, len(questions)),
-        parse_mode="MarkdownV2",
         reply_markup=keyboard,
     )
 
@@ -144,25 +137,21 @@ async def handle_quiz_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if is_correct:
         score += 1
-        feedback = f"✅ *Correct!*\n_{current_q['explanation']}_"
+        feedback = f"✅ Correct!\n{current_q['explanation']}"
     else:
-        feedback = (
-            f"❌ *Wrong!* The answer is *{correct}*\n"
-            f"_{current_q['explanation']}_"
-        )
+        feedback = f"❌ Wrong! The correct answer is {correct}.\n{current_q['explanation']}"
 
     quiz["score"] = score
     quiz["index"] = index + 1
     session.set_key(chat_id, "quiz", quiz)
 
-    await update.message.reply_text(feedback, parse_mode="Markdown")
+    await update.message.reply_text(feedback)
 
     # Next question or end
     if quiz["index"] < len(questions):
         next_q = questions[quiz["index"]]
         await update.message.reply_text(
             format_question(next_q, quiz["index"] + 1, len(questions)),
-            parse_mode="MarkdownV2",
         )
     else:
         await end_quiz_session(update, context)
@@ -177,29 +166,28 @@ async def end_quiz_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     quiz = session.get_key(chat_id, "quiz", {})
     score = quiz.get("score", 0)
     total = len(quiz.get("questions", []))
-    topic = quiz.get("topic", "Unknown")
+    topic = quiz.get("topic", "Current Topic")
 
     session.set_key(chat_id, "state", "idle")
 
     percentage = (score / total * 100) if total > 0 else 0
     if percentage >= 80:
         emoji = "🏆"
-        msg = "Excellent! You know this topic well!"
+        msg = "Excellent! You have strong grasp on this topic!"
     elif percentage >= 60:
         emoji = "👍"
-        msg = "Good job! Quick revision of weak points and you're ready!"
+        msg = "Good job! Quick revision of weak spots and you're golden!"
     elif percentage >= 40:
         emoji = "📖"
-        msg = "Needs more revision. Re-read the key concepts!"
+        msg = "Needs a bit more work. Use /summary to review key points!"
     else:
         emoji = "🚨"
-        msg = "This topic needs serious attention tonight!"
+        msg = "Needs serious attention tonight! Read /summary and retry!"
 
     await update.message.reply_text(
-        f"{emoji} *Quiz Complete — {topic}*\n\n"
-        f"Score: *{score}/{total}* \\({int(percentage)}%\\)\n\n"
+        f"{emoji} Quiz Complete — {topic}\n\n"
+        f"Score: {score}/{total} ({int(percentage)}%)\n\n"
         f"{msg}\n\n"
-        f"Try /quiz \\[another topic\\] or /summary \\[topic\\] for a cheat sheet\\.",
-        parse_mode="MarkdownV2",
+        f"Try /quiz [another topic] or /summary [topic] for a cheat sheet.",
         reply_markup=ReplyKeyboardRemove(),
     )

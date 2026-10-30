@@ -50,18 +50,15 @@ async def handle_summary(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     else:
         topic = " ".join(args)
 
-    await update.message.reply_text(f"📌 Generating cheat sheet for *{topic}*...", parse_mode="Markdown")
+    status_msg = await update.message.reply_text(f"📌 Generating cheat sheet for {topic}...")
 
     user_prompt = f"Subject: {subject or 'General'}\nTopic: {topic}\nCreate a compact exam cheat sheet."
 
     try:
         summary = await bharatcode.chat(SYSTEM_PROMPT, user_prompt, temperature=0.4)
     except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
+        await status_msg.edit_text(f"❌ Error: {e}")
         return
 
-    await update.message.reply_text(
-        f"{summary}\n\n"
-        f"━━━━━━━━━━━━━━━\n"
-        f"Try /quiz {topic} to test yourself! 🎯"
-    )
+    full_text = f"{summary}\n\n━━━━━━━━━━━━━━━\nTry /quiz {topic} to test yourself! 🎯"
+    await status_msg.edit_text(full_text)

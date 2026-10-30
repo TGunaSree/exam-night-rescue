@@ -11,7 +11,7 @@ Give them ONLY the most critical information — no fluff, pure signal.
 Format:
 🚨 PANIC MODE — [Subject]
 
-For each of the top 3 topics, give:
+For each of the top 3-4 topics, give:
 
 🔥 [TOPIC NAME]
   • [Key point 1 — one line]
@@ -34,24 +34,21 @@ Keep everything ULTRA SHORT. Student has no time to read long answers."""
 async def handle_panic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     topics = session.get_key(chat_id, "topics", [])
-    subject = session.get_key(chat_id, "subject", "your subject")
+    subject = session.get_key(chat_id, "subject", "Your Subject")
 
-    await update.message.reply_text(
-        "🚨 *PANIC MODE ACTIVATED!*\n\nGenerating your emergency rescue in 10 seconds...",
-        parse_mode="Markdown",
-    )
+    status_msg = await update.message.reply_text("🚨 PANIC MODE ACTIVATED!\nGenerating your emergency rescue in seconds...")
 
-    topic_list = ", ".join(topics[:8]) if topics else "all topics"
+    topic_list = ", ".join(topics[:8]) if topics else "all core exam topics"
     user_prompt = (
         f"Subject: {subject}\n"
         f"Topics: {topic_list}\n"
-        f"Student has 1-2 hours. Give ultra-compressed rescue."
+        f"Student has 1-2 hours. Give ultra-compressed survival rescue."
     )
 
     try:
         rescue = await bharatcode.chat(SYSTEM_PROMPT, user_prompt, temperature=0.3)
     except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
+        await status_msg.edit_text(f"❌ Error: {e}")
         return
 
-    await update.message.reply_text(rescue)
+    await status_msg.edit_text(rescue)

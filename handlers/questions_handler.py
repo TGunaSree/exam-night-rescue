@@ -47,14 +47,14 @@ async def handle_questions(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     else:
         topic = " ".join(args)
 
-    await update.message.reply_text(f"🔍 Generating key questions for *{topic}*...", parse_mode="Markdown")
+    status_msg = await update.message.reply_text(f"🔍 Generating key questions for {topic}...")
 
     user_prompt = f"Subject: {subject or 'General'}\nTopic: {topic}\nGenerate exam questions."
 
     try:
         questions = await bharatcode.chat(SYSTEM_PROMPT, user_prompt)
     except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
+        await status_msg.edit_text(f"❌ Error: {e}")
         return
 
-    await update.message.reply_text(questions)
+    await status_msg.edit_text(questions)
